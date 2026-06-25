@@ -1,0 +1,333 @@
+ function flight_data = import_ardupilot_data(filename, globalTime)
+
+    % Inputs:
+    %   filename   - String, path to the .bin file
+    %   globalTime - Column vector, time series for interpolation
+    %
+    % Outputs:
+    %   flight_data - Struct containing:
+    %     .states: [x, y, z, u, v, w, p, q, r, phi, theta, psi]
+    %     .inputs: [roll_input, pitch_input, yaw_input, thrust_input]
+    %     .strain: struct of arm data { .arm_1 , .arm_2 , .arm_3 , .arm_4}
+    %     .acceleration: [ax, ay, az ,p_dot , q_dot] in body frame
+    %     .time: interpolated time vector
+    
+    %% Initialize the output structure
+    flight_data = struct();
+    flight_data.time = globalTime;
+    
+    %% Read the ArduPilot bin file
+    fprintf('Reading ArduPilot bin file: %s\n', filename);
+    arduObj = ardupilotreader(filename);
+    
+    %% Extract Control Inputs (CTUN message)
+    fprintf('Extracting control inputs...\n');
+    try
+        control_data_raw = readMessages(arduObj, 'MessageName', {'CTUN'});
+        control_data = control_data_raw.MsgData{1,1};
+        
+        % Extract control data
+        control_time = HMS_to_sec_no_offset(timetable2table(control_data(:,4)));
+        
+        thrust_input = timetable2table(control_data(:,4));
+        thrust_input = table2array(thrust_input(:,2));
+        
+        roll_input = timetable2table(control_data(:,5));
+        roll_input = table2array(roll_input(:,2));
+    
+        pitch_input = timetable2table(control_data(:,6));
+        pitch_input = table2array(pitch_input(:,2));
+
+        yaw_input = timetable2table(control_data(:,7));
+        yaw_input = table2array(yaw_input(:,2));
+        
+
+        
+        % Interpolate control inputs
+        flight_data.inputs = [
+            interp1(control_time, roll_input, globalTime, 'linear') , ...
+            interp1(control_time, pitch_input, globalTime, 'linear') , ...
+            interp1(control_time, yaw_input, globalTime, 'linear') , ...
+            interp1(control_time, thrust_input, globalTime, 'linear')
+        ];
+    
+    catch ME
+        warning('Could not extract control data: %s', string(ME.message));
+        flight_data.inputs = nan(length(globalTime), 4);
+    end
+    
+    %% Extract EKF Position Data (XKF1 message)
+    fprintf('Extracting EKF attitude, position, and velocity data...\n');
+    try
+        EKF1_raw = readMessages(arduObj, 'MessageName', {'XKF1'});
+        EKF1_data = EKF1_raw.MsgData{1,1};
+
+        ATT_raw = readMessages(arduObj, 'MessageName', {'XKF1'});
+        ATT_data = ATT_raw.MsgData{1,1};
+        
+        EKF_time = HMS_to_sec_no_offset(timetable2table(EKF1_data(:,8)));
+        ATT_time = HMS_to_sec_no_offset(timetable2table(ATT_data(:,1)));
+        
+        % attitude
+        roll = timetable2table(ATT_data(:,3)); 
+        roll = table2array(roll(:,2));
+
+        pitch = timetable2table(ATT_data(:,4)); 
+        pitch = table2array(pitch(:,2));
+
+        yaw = timetable2table(ATT_data(:,5)); 
+        yaw = table2array(yaw(:,2));
+
+        % Global frame velocities (from XKF1)
+        vel_global_N = timetable2table(EKF1_data(:,6));
+        vel_global_N = table2array(vel_global_N(:,2));
+        
+        vel_global_E = timetable2table(EKF1_data(:,7));
+        vel_global_E = table2array(vel_global_E(:,2));
+
+        vel_global_D = timetable2table(EKF1_data(:,8));
+        vel_global_D = table2array(vel_global_D(:,2));
+
+        % Position (global frame)
+        pos_x = timetable2table(EKF1_data(:,10));
+        pos_x = table2array(pos_x(:,2));
+        
+        pos_y = timetable2table(EKF1_data(:,11));
+        pos_y = table2array(pos_y(:,2));
+        
+        pos_z = timetable2table(EKF1_data(:,12));
+        pos_z = table2array(pos_z(:,2));
+
+        
+        % Interpolate attitude data
+        attitude = [
+            interp1(ATT_time, roll, globalTime, 'linear'), ...
+            interp1(ATT_time, pitch, globalTime, 'linear'), ...
+            interp1(ATT_time, yaw, globalTime, 'linear')
+        ];
+        
+        % Interpolate position and global velocity to common time
+        position = [
+            interp1(EKF_time, pos_x, globalTime, 'linear'), ...
+            interp1(EKF_time, pos_y, globalTime, 'linear'), ...
+            interp1(EKF_time, pos_z, globalTime, 'linear')
+        ];
+
+        velocity_global = [
+            interp1(EKF_time, vel_global_N, globalTime, 'linear'), ...
+            interp1(EKF_time, vel_global_E, globalTime, 'linear'), ...
+            interp1(EKF_time, vel_global_D, globalTime, 'linear')
+        ];
+
+
+         %% Transform global velocities to body frame using attitude data
+        fprintf('Performing coordinate transformation for velocities...\n');
+        try
+            if ~any(isnan(attitude(:))) && ~any(isnan(velocity_global(:)))
+                velocity_body = zeros(size(velocity_global));
+                
+                for i = 1:length(globalTime)
+                    % Create rotation matrix from global to body frame (transpose of body-to-global)
+                    phi = attitude(i,1);    % Roll
+                    theta = attitude(i,2);  % Pitch  
+                    psi = attitude(i,3);    % Yaw
+                    
+                    % Rotation matrix from global to body frame (DCM transpose)
+                    R_global_to_body = RotationMatrix321([phi, theta, psi])';
+                    
+                    % Transform velocity vector
+                    velocity_body(i,:) = (R_global_to_body * velocity_global(i,:)')';
+                end
+            else
+                warning('Cannot transform velocities: missing attitude or velocity data');
+                velocity_body = velocity_global;  % Use global velocities as fallback
+            end
+
+        catch ME
+            warning('Velocity transformation failed: %s', string(ME.message));
+            velocity_body = velocity_global;  % Use global velocities as fallback
+        end
+
+    catch ME
+        warning('Could not extract EKF position data: %s', string(ME.message));
+        position = nan(length(globalTime), 3);
+        velocity_body = nan(length(globalTime), 3);
+        attitude =  nan(length(globalTime), 3);
+    end
+    
+    %% Extract IMU Data for angular rates and accelerations
+    fprintf('Extracting IMU data...\n');
+    try
+        IMU_data_raw = readMessages(arduObj, 'MessageName', {'IMU'});
+        IMU_data = IMU_data_raw.MsgData{1,1};
+        
+        IMU_time = HMS_to_sec_no_offset(timetable2table(IMU_data(:,2)));
+        
+        % Angular rates (p, q, r)
+        IMU_p = timetable2table(IMU_data(:,3));
+        IMU_p = table2array(IMU_p(:,2));
+
+        IMU_q = timetable2table(IMU_data(:,4));
+        IMU_q = table2array(IMU_q(:,2));
+
+        IMU_r = timetable2table(IMU_data(:,5));
+        IMU_r = table2array(IMU_r(:,2));
+        
+        % Linear accelerations
+        X_acc = timetable2table(IMU_data(:,6));
+        X_acc = table2array(X_acc(:,2));
+
+        Y_acc = timetable2table(IMU_data(:,7));
+        Y_acc = table2array(Y_acc(:,2));
+
+        Z_acc = timetable2table(IMU_data(:,8));
+        Z_acc = table2array(Z_acc(:,2));
+        
+        % Interpolate IMU data
+        angular_rates = [
+            interp1(IMU_time, IMU_p, globalTime, 'linear'),...
+            interp1(IMU_time, IMU_q, globalTime, 'linear'),...
+            interp1(IMU_time, IMU_r, globalTime, 'linear')
+        ];
+
+        dt = mean(diff(globalTime));
+        p_dot = gradient(angular_rates(:,1), dt );
+        q_dot = gradient(angular_rates(:,2), dt );
+        
+        flight_data.acceleration = [
+            interp1(IMU_time, X_acc, globalTime, 'linear'),...
+            interp1(IMU_time, Y_acc, globalTime, 'linear'),...
+            interp1(IMU_time, Z_acc, globalTime, 'linear'),...
+            p_dot,...
+            q_dot
+        ];
+        
+        
+    catch ME
+        warning('Could not extract IMU data: %s', string(ME.message));
+        angular_rates = nan(length(globalTime), 3);
+        flight_data.acceleration = nan(length(globalTime), 5);
+    end
+    
+    %% Extract Strain Data
+    fprintf('Extracting strain gauge data...\n');
+    try
+        [strain_arm_1, strain_arm_2, strain_arm_3, strain_arm_4] = import_strain_data(globalTime, arduObj);
+        
+        flight_data.strain = struct();
+        flight_data.strain.arm_1 = strain_arm_1;
+        flight_data.strain.arm_2 = strain_arm_2;
+        flight_data.strain.arm_3 = strain_arm_3;
+        flight_data.strain.arm_4 = strain_arm_4;
+        
+    catch ME
+        warning('Could not extract strain data: %s', string(ME.message));
+        flight_data.strain = struct();
+        flight_data.strain.arm_1 = nan(length(globalTime), 6);
+        flight_data.strain.arm_2 = nan(length(globalTime), 6);
+        flight_data.strain.arm_3 = nan(length(globalTime), 6);
+        flight_data.strain.arm_4 = nan(length(globalTime), 6);
+    end
+    
+    %% Combine all states: [x, y, z, u, v, w, p, q, r, phi, theta, psi]
+    flight_data.states = [position, velocity_body, angular_rates, attitude];
+    
+    fprintf('Data extraction complete!\n');
+    fprintf('States shape: %dx%d\n', size(flight_data.states));
+    fprintf('Inputs shape: %dx%d\n', size(flight_data.inputs));
+    fprintf('Acceleration shape: %dx%d\n', size(flight_data.acceleration));
+    
+ end
+
+%% Helper Functions
+
+function time = HMS_to_sec_no_offset(table)
+    time_HMS = table2array(table(:,1));
+    [Y, M, D, H, MN, S] = datevec(time_HMS);
+    time_offset = H*3600+MN*60+S;
+    time = time_offset;
+end
+
+function R = RotationMatrix321(euler_angles)
+    % calculates the 3-2-1 rotation matrix (R) given Euler angles [phi; theta; psi]
+    % phi   = roll angle (rotation about x-axis)
+    % theta = pitch angle (rotation about y-axis)
+    % psi   = yaw angle (rotation about z-axis)
+
+    % Extract Euler angles
+    phi = euler_angles(1);
+    theta = euler_angles(2);
+    psi = euler_angles(3);
+
+    % Calculate rotation matrix
+    R_phi = [1 0 0; 0 cos(phi) sin(phi); 0 -sin(phi) cos(phi)];
+    R_theta = [cos(theta) 0 -sin(theta); 0 1 0; sin(theta) 0 cos(theta)];
+    R_psi = [cos(psi) sin(psi) 0; -sin(psi) cos(psi) 0; 0 0 1];
+
+    % Combine results
+    R = R_phi * R_theta * R_psi;
+end
+
+function [strain_arm_1 , strain_arm_2, strain_arm_3 ,strain_arm_4] = import_strain_data(globalTime,arduObj)
+
+    strain_sensor1_data_raw = readMessages(arduObj,'MessageName',{'STR1'});
+    strain_sensor1_data = strain_sensor1_data_raw.MsgData{1,1};
+    
+    strain_sensor2_data_raw = readMessages(arduObj,'MessageName',{'STR2'});
+    strain_sensor2_data = strain_sensor2_data_raw.MsgData{1,1};
+
+    a1_s1_tab = timetable2table( strain_sensor1_data(:,2)  );
+    a1_s2_tab = timetable2table( strain_sensor1_data(:,3)  );
+    a1_s3_tab = timetable2table( strain_sensor1_data(:,4)  );
+
+    
+    a1_s1 = table2array(  a1_s1_tab(:,2)  );
+    a1_s2 = table2array(  a1_s2_tab(:,2)  );
+    a1_s3 = table2array(  a1_s3_tab(:,2)  );
+
+
+    %%% arm 2
+    a2_s1_tab = timetable2table( strain_sensor1_data(:,6)  );
+    a2_s2_tab = timetable2table( strain_sensor1_data(:,7)  );
+    a2_s3_tab = timetable2table( strain_sensor1_data(:,8)  );
+
+    a2_s1 = table2array(  a2_s1_tab(:,2)  );
+    a2_s2 = table2array(  a2_s2_tab(:,2)  );
+    a2_s3 = table2array(  a2_s3_tab(:,2)  );
+
+    %%% arm 3
+    a3_s1_tab = timetable2table( strain_sensor2_data(:,2)  );
+    a3_s2_tab = timetable2table( strain_sensor2_data(:,3)  );
+    a3_s3_tab = timetable2table( strain_sensor2_data(:,4)  );
+
+    
+    a3_s1 = table2array(  a3_s1_tab(:,2)  );
+    a3_s2 = table2array(  a3_s2_tab(:,2)  );
+    a3_s3 = table2array(  a3_s3_tab(:,2)  );
+
+
+    %%% arm 2
+    a4_s1_tab = timetable2table( strain_sensor2_data(:,6)  );
+    a4_s2_tab = timetable2table( strain_sensor2_data(:,7)  );
+    a4_s3_tab = timetable2table( strain_sensor2_data(:,8)  );
+
+    a4_s1 = table2array(  a4_s1_tab(:,2)  );
+    a4_s2 = table2array(  a4_s2_tab(:,2)  );
+    a4_s3 = table2array(  a4_s3_tab(:,2)  );
+
+
+    %%% Interperate strain
+    strain_arm1_time = HMS_to_sec_no_offset(timetable2table( strain_sensor1_data(:,2)));
+    strain_arm2_time = HMS_to_sec_no_offset(timetable2table( strain_sensor2_data(:,2)));
+
+    strain_arm1 = [a1_s1,a1_s2,a1_s3];
+    strain_arm2 = [a2_s1,a2_s2,a2_s3];
+    strain_arm3 = [a3_s1,a3_s2,a3_s3];
+    strain_arm4 = [a4_s1,a4_s2,a4_s3];
+
+    strain_arm_1 = interp1( strain_arm1_time, strain_arm1, globalTime, 'linear');
+    strain_arm_2 = interp1( strain_arm1_time, strain_arm2, globalTime, 'linear');
+    strain_arm_3 = interp1( strain_arm2_time, strain_arm3, globalTime, 'linear');
+    strain_arm_4 = interp1( strain_arm2_time, strain_arm4, globalTime, 'linear');
+
+end
