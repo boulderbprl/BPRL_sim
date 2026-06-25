@@ -11,7 +11,7 @@ addpath(genpath('../../MATLAB'))
 try
     state = load('Hexsoon','copter');
 catch
-    run('Copter.m')
+    run('init_hexsoon.m')
     fprintf('Could not find Hexsoon.mat file, running copter.m\n')
     return
 end
