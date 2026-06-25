@@ -90,26 +90,25 @@ cd <repo-name>
 
 ```
 .
-├── src/                       
-│   └── MATLAB
-│   │   ├── Controllers/                # controller dev folder
-│   │   ├── Copter/                # Hexsoon vehicle parameters and airframe config
-<<<<<<< HEAD
-=======
-│   │       ├── SIM_multicopter/                # Run for full ardupilot SITL
-│   │       ├── SIM_multicopter_PID_noZaccel/                # Run for full MATLAB SITL (No Alt Accel inner loop PID)
-│   │       ├── SIM_multicopter_PID_Zaccel/                # Run for full MATLAB SITL with Alt Accel inner loop PID (Uses Ardupilot architecture and gains)
-│   │       ├── init_hexsoon.m/                # init file which generates Hexsoon.mat config file 
-│   │       ├── Hexsoon.mat/                # MAT file with Hexsoon copter config
-│   │       ├── readme.md/               
->>>>>>> temp_branch
-│   │   ├── bprl_copter/                # BPRL copter parameters and airframe config
-│   │   ├── rtos_drone/                # BPRL experimental RTOS copter parameters and airframe config
-│   │   ├── tcp_udp_ip_2.0.6/                
-│   │   ├── SITL_connector.m      
-│   │   ├── readme.m                
-│   └── python (TBD)
-│
+├── MATLAB/
+│   ├── Controllers/                # controller dev folder
+│   ├── Copter/                # Hexsoon vehicle parameters and airframe config
+│       ├── SIM_multicopter/                # Run for full ardupilot SITL
+│       ├── SIM_multicopter_PID_noZaccel/                # Run for full MATLAB SITL (No Alt Accel inner loop PID)
+│       ├── SIM_multicopter_PID_Zaccel/                # Run for full MATLAB SITL with Alt Accel inner loop PID (Uses Ardupilot architecture and gains)
+│       ├── init_hexsoon.m/                # init file which generates Hexsoon.mat config file 
+│       ├── Hexsoon.mat/                # MAT file with Hexsoon copter config
+│       ├── readme.md/               
+│   ├── bprl_copter/                # BPRL copter parameters and airframe config
+│   ├── rtos_drone/                # BPRL experimental RTOS copter parameters and airframe config
+│   ├── tcp_udp_ip_2.0.6/                
+│   ├── SITL_connector.m      
+│   ├── readme.m                
+└── python (TBD)
+│   
+├── visualizer/
+│   ├── quad_viz_pybullet/                # pybullet matlab visualizer
+
 ├── .gitmodules                     # Git submodule config (ArduPilot)
 └── README.md
 ```
@@ -132,7 +131,14 @@ See readme_ardupilot_only.md
 init_hexsoon   % or init_<vehicle_name>
 ```
 
-3. Open and run the MATLAB script
+2. Run visualizer script
+
+```python
+python drone_viz.py 
+```
+
+
+2. Open and run the MATLAB script
 
 ```matlab
 SIM_multicopter_PID_noZaccel.m
