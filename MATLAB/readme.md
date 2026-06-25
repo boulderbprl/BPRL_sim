@@ -39,6 +39,12 @@ See ardupilot_only.md
 init_hexsoon   % or init_<vehicle_name>
 ```
 
+2. Run Visualizer
+
+```python
+python ../visualizer/quad_viz_pybullet/visudrone_viz.py
+```
+
 3. Open and run the MATLAB script
 
 ```matlab
@@ -51,6 +57,11 @@ SIM_multicopter_PID_noZaccel.m
 
 ```matlab
 init_hexsoon   % or init_<vehicle_name>
+```
+2. Run Visualizer
+
+```python
+python ../visualizer/quad_viz_pybullet/drone_viz.py
 ```
 
 3. Open and run the MATLAB script
