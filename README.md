@@ -94,6 +94,15 @@ cd <repo-name>
 │   └── MATLAB
 │   │   ├── Controllers/                # controller dev folder
 │   │   ├── Copter/                # Hexsoon vehicle parameters and airframe config
+<<<<<<< HEAD
+=======
+│   │       ├── SIM_multicopter/                # Run for full ardupilot SITL
+│   │       ├── SIM_multicopter_PID_noZaccel/                # Run for full MATLAB SITL (No Alt Accel inner loop PID)
+│   │       ├── SIM_multicopter_PID_Zaccel/                # Run for full MATLAB SITL with Alt Accel inner loop PID (Uses Ardupilot architecture and gains)
+│   │       ├── init_hexsoon.m/                # init file which generates Hexsoon.mat config file 
+│   │       ├── Hexsoon.mat/                # MAT file with Hexsoon copter config
+│   │       ├── readme.md/               
+>>>>>>> temp_branch
 │   │   ├── bprl_copter/                # BPRL copter parameters and airframe config
 │   │   ├── rtos_drone/                # BPRL experimental RTOS copter parameters and airframe config
 │   │   ├── tcp_udp_ip_2.0.6/                
