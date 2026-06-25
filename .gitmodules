@@ -1,0 +1,3 @@
+[submodule "visualizer/quad_viz_pybullet/gym-pybullet-drone"]
+	path = visualizer/quad_viz_pybullet/gym-pybullet-drone
+	url = https://github.com/learnsyslab/gym-pybullet-drones

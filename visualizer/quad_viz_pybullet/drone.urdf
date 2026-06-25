@@ -1,0 +1,137 @@
+<?xml version="1.0"?>
+<robot name="quadrotor">
+
+  <!-- Base body -->
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <box size="0.3 0.3 0.1"/>
+      </geometry>
+      <material name="dark_gray">
+        <color rgba="0.2 0.2 0.2 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- Arm 1: front-left -->
+  <link name="arm_fl">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0.785"/>
+      <geometry>
+        <box size="0.35 0.04 0.02"/>
+      </geometry>
+      <material name="gray">
+        <color rgba="0.4 0.4 0.4 1"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="arm_fl_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="arm_fl"/>
+    <origin xyz="0 0 0"/>
+  </joint>
+
+  <!-- Arm 2: front-right -->
+  <link name="arm_fr">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 -0.785"/>
+      <geometry>
+        <box size="0.35 0.04 0.02"/>
+      </geometry>
+      <material name="gray">
+        <color rgba="0.4 0.4 0.4 1"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="arm_fr_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="arm_fr"/>
+    <origin xyz="0 0 0"/>
+  </joint>
+
+  <!-- Rotor FL -->
+  <link name="rotor_fl">
+    <visual>
+      <geometry>
+        <cylinder radius="0.12" length="0.01"/>
+      </geometry>
+      <material name="red">
+        <color rgba="0.8 0.1 0.1 0.8"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="rotor_fl_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="rotor_fl"/>
+    <origin xyz="0.175 0.175 0.02"/>
+  </joint>
+
+  <!-- Rotor FR -->
+  <link name="rotor_fr">
+    <visual>
+      <geometry>
+        <cylinder radius="0.12" length="0.01"/>
+      </geometry>
+      <material name="black">
+        <color rgba="0.1 0.1 0.1 0.8"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="rotor_fr_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="rotor_fr"/>
+    <origin xyz="0.175 -0.175 0.02"/>
+  </joint>
+
+  <!-- Rotor RL -->
+  <link name="rotor_rl">
+    <visual>
+      <geometry>
+        <cylinder radius="0.12" length="0.01"/>
+      </geometry>
+      <material name="black2">
+        <color rgba="0.1 0.1 0.1 0.8"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="rotor_rl_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="rotor_rl"/>
+    <origin xyz="-0.175 0.175 0.02"/>
+  </joint>
+
+  <!-- Rotor RR -->
+  <link name="rotor_rr">
+    <visual>
+      <geometry>
+        <cylinder radius="0.12" length="0.01"/>
+      </geometry>
+      <material name="red2">
+        <color rgba="0.8 0.1 0.1 0.8"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="rotor_rr_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="rotor_rr"/>
+    <origin xyz="-0.175 -0.175 0.02"/>
+  </joint>
+
+  <!-- Camera mount (front indicator) -->
+  <link name="camera">
+    <visual>
+      <geometry>
+        <box size="0.04 0.06 0.03"/>
+      </geometry>
+      <material name="blue">
+        <color rgba="0.1 0.3 0.9 1"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera"/>
+    <origin xyz="0.16 0 -0.03"/>
+  </joint>
+
+</robot>
