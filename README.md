@@ -29,7 +29,7 @@ The framework supports three distinct controller architectures, ranging from the
 
 | Platform | Type | Description |
 |---|---|---|
-| **Hexsoon EDU-450 / EDU-650** | Quadcopter / Hexacopter | Commercial multicopter frame used as primary development platform |
+| **Hexsoon EDU-450 ** | Quadcopter / Hexacopter | Simple Multicopter Platform used as Example |
 | **BPRL Copter** | Custom Multicopter | In-house lab platform used for experimental controller validation |
 
 Vehicle parameters (mass, inertia, motor curves, propeller coefficients) for each platform are defined in their respective configuration files under `config/vehicles/`.
@@ -48,11 +48,11 @@ Uses the stock **ArduPilot** firmware running entirely within the SITL environme
 - Standard ArduCopter parameter tuning via `.param` files
 
 ### 2. Full MATLAB PID Controller
-A complete replacement of the ArduPilot control stack with a **custom PID controller implemented in MATLAB/Simulink**. Both the outer loop (position/velocity) and inner loop (attitude/rate) are designed and tuned in MATLAB.
+A complete replacement of the ArduPilot control stack with a **custom PID controller implemented in programmatic MATLAB**. Both the outer loop (position/velocity) and inner loop (attitude/rate) are designed and tuned in MATLAB.
 
 - Position controller → Velocity controller → Attitude controller → Rate controller
 - All gains defined in MATLAB controller configuration scripts
-- Interfaces with the simulated vehicle dynamics via the MATLAB/Simulink interface layer
+- Interfaces with the simulated vehicle dynamics 
 
 ### 3. Full MATLAB PID (Outer Loop) + INDI (Inner Loop)
 A hybrid architecture combining a **MATLAB PID outer loop** for position and velocity tracking with an **Incremental Nonlinear Dynamic Inversion (INDI)** inner loop for attitude and angular rate control.
@@ -60,23 +60,16 @@ A hybrid architecture combining a **MATLAB PID outer loop** for position and vel
 - Outer loop: PID-based position and velocity controller (identical to Architecture 2)
 - Inner loop: INDI-based attitude and angular rate controller for improved disturbance rejection and robustness
 - Actuator model and sensor data used directly in the INDI control law
-- Suitable for aggressive manoeuvres and operation in turbulent conditions
 
 ---
 
 ## Prerequisites
 
-- **MATLAB / Simulink** (R2022a or later recommended)
+- **MATLAB / Simulink** (R2024a or later recommended)
 - **ArduPilot SITL** — [Setup guide](https://ardupilot.org/dev/docs/sitl-simulator-software-in-the-loop.html)
-- **Python 3.8+** with `pymavlink`, `dronekit` (for MAVLink scripting)
+- **Python 3.10+** with `pymavlink`, `dronekit` (for MAVLink scripting)
 - **QGroundControl** or **Mission Planner** (optional, for GCS)
-- Linux / macOS recommended; WSL2 supported on Windows
-
-Install Python dependencies:
-
-```bash
-pip install -r requirements.txt
-```
+- Linux recommended; (Not tested for Windows or MacOS as yet)
 
 ---
 
@@ -89,15 +82,7 @@ git clone https://github.com/<your-org>/<repo-name>.git
 cd <repo-name>
 ```
 
-2. Set up ArduPilot SITL (if not already installed):
-
-```bash
-cd ardupilot
-./Tools/environment_install/install-prereqs-ubuntu.sh -y
-. ~/.profile
-```
-
-3. Launch a simulation — see [Usage](#usage) below.
+2. Launch a simulation — see [Usage](#usage) below.
 
 ---
 
@@ -105,56 +90,17 @@ cd ardupilot
 
 ```
 .
-├── ardupilot/                      # ArduPilot SITL submodule / installation
-│   └── Tools/
-│       └── autotest/               # ArduPilot SITL scripts and vehicle configs
+├── src/                       
+│   └── MATLAB
+│   │   ├── Controllers/                # controller dev folder
+│   │   ├── Copter/                # Hexsoon vehicle parameters and airframe config
+│   │   ├── bprl_copter/                # BPRL copter parameters and airframe config
+│   │   ├── rtos_drone/                # BPRL experimental RTOS copter parameters and airframe config
+│   │   ├── tcp_udp_ip_2.0.6/                
+│   │   ├── SITL_connector.m      
+│   │   ├── readme.m                
+│   └── python (TBD)
 │
-├── config/
-│   ├── vehicles/
-│   │   ├── hexsoon/                # Hexsoon vehicle parameters and airframe config
-│   │   └── bprl_copter/            # BPRL copter parameters and airframe config
-│   └── controllers/
-│       ├── ardupilot/              # ArduPilot .param files for each platform
-│       ├── matlab_pid/             # Gain schedules and config for full PID controller
-│       └── matlab_pid_indi/        # Gain schedules and config for PID + INDI controller
-│
-├── controllers/
-│   ├── ardupilot_only/             # Launch scripts and wrappers for ArduPilot SITL baseline
-│   ├── matlab_pid/                 # Full MATLAB PID controller (outer + inner loop)
-│   │   ├── outer_loop/             # Position and velocity PID controller (Simulink)
-│   │   └── inner_loop/             # Attitude and rate PID controller (Simulink)
-│   └── matlab_pid_indi/            # PID outer loop + INDI inner loop controller
-│       ├── outer_loop/             # Position and velocity PID controller (Simulink)
-│       └── inner_loop/             # INDI attitude and rate controller (Simulink)
-│
-├── dynamics/
-│   ├── vehicle_model.m             # Multicopter rigid-body dynamics model
-│   ├── motor_model.m               # Motor and ESC model
-│   └── aero_model.m                # Aerodynamic disturbance model
-│
-├── interface/
-│   ├── mavlink/                    # MAVLink interface layer (Python)
-│   ├── matlab_sitl_bridge/         # MATLAB ↔ ArduPilot SITL UDP bridge
-│   └── sensor_emulation/           # Simulated IMU, barometer, GPS outputs
-│
-├── missions/
-│   ├── hover_test.py               # Basic hover validation mission
-│   ├── waypoint_nav.py             # Waypoint following mission
-│   └── step_response.py            # Step input tests for controller tuning
-│
-├── analysis/
-│   ├── plot_logs.m                 # MATLAB log plotting and analysis scripts
-│   ├── performance_metrics.m       # Controller performance metric calculations
-│   └── compare_controllers.m       # Side-by-side comparison across architectures
-│
-├── logs/                           # Simulation log output (auto-generated, git-ignored)
-│
-├── docs/
-│   ├── controller_design.md        # Theory and design notes for each controller
-│   ├── vehicle_parameters.md       # Platform-specific parameter documentation
-│   └── sitl_setup.md               # Detailed SITL environment setup guide
-│
-├── requirements.txt                # Python dependencies
 ├── .gitmodules                     # Git submodule config (ArduPilot)
 └── README.md
 ```
@@ -163,47 +109,38 @@ cd ardupilot
 
 ## Usage
 
+1. Open MATLAB and navigate to the relevant vehicle folder. 
+
 ### ArduPilot Only (Baseline)
 
-```bash
-# Launch SITL with Hexsoon airframe
-cd ardupilot
-sim_vehicle.py -v ArduCopter --frame=hexa \
-  --add-param-file=../config/vehicles/hexsoon/hexsoon.param
-
-# Or BPRL copter
-sim_vehicle.py -v ArduCopter --frame=quad \
-  --add-param-file=../config/vehicles/bprl_copter/bprl.param
-```
+See readme_ardupilot_only.md
 
 ### Full MATLAB PID Controller
 
-1. Open MATLAB and navigate to `controllers/matlab_pid/`
-2. Run the initialisation script for the target platform:
+1. Run the initialisation script for the target platform:
 
 ```matlab
-init_hexsoon   % or init_bprl
+init_hexsoon   % or init_<vehicle_name>
 ```
 
-3. Open and run the Simulink model:
+3. Open and run the MATLAB script
 
 ```matlab
-sim('multicopter_pid_sitl.slx')
+SIM_multicopter_PID_noZaccel.m
 ```
 
 ### PID + INDI Controller
 
-1. Open MATLAB and navigate to `controllers/matlab_pid_indi/`
-2. Run the initialisation script:
+1. Run the initialisation script for the target platform:
 
 ```matlab
-init_hexsoon_indi   % or init_bprl_indi
+init_hexsoon   % or init_<vehicle_name>
 ```
 
-3. Open and run the Simulink model:
+3. Open and run the MATLAB script
 
 ```matlab
-sim('multicopter_pid_indi_sitl.slx')
+SIM_multicopter_PID_INDI.m
 ```
 
 ---
