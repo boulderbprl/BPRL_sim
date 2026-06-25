@@ -1,67 +1,29 @@
-## Controller Architectures
-
-Three flight controller architectures are implemented and can be selected at runtime.
-
-### 1. ArduPilot Only
-Uses the stock **ArduPilot** firmware running entirely within the SITL environment. This serves as the baseline controller and reference for performance comparison.
-
-- Attitude and rate control handled natively by ArduPilot
-- Full MAVLink interface for ground control station (GCS) connectivity
-- Standard ArduCopter parameter tuning via `.param` files
-
-### 2. Full MATLAB PID Controller
-A complete replacement of the ArduPilot control stack with a **custom PID controller implemented in programmatic MATLAB**. Both the outer loop (position/velocity) and inner loop (attitude/rate) are designed and tuned in MATLAB.
-
-- Position controller → Velocity controller → Attitude controller → Rate controller
-- All gains defined in MATLAB controller configuration scripts
-- Interfaces with the simulated vehicle dynamics 
-
-### 3. Full MATLAB PID (Outer Loop) + INDI (Inner Loop) **[Under Development]
-A hybrid architecture combining a **MATLAB PID outer loop** for position and velocity tracking with an **Incremental Nonlinear Dynamic Inversion (INDI)** inner loop for attitude and angular rate control.
-
-- Outer loop: PID-based position and velocity controller (identical to Architecture 2)
-- Inner loop: INDI-based attitude and angular rate controller for improved disturbance rejection and robustness
-- Actuator model and sensor data used directly in the INDI control law
-
-## Usage
-
-1. Open MATLAB and navigate to the relevant vehicle folder. 
-
-### ArduPilot Only (Baseline)
-
-See ardupilot_only.md
-
-### Full MATLAB PID Controller
-
-1. Run the initialisation script for the target platform:
-
+Step 1. Run the initialisation script for the target platform:
 ```matlab
 init_hexsoon   % or init_<vehicle_name>
 ```
-
-3. Open and run the MATLAB script
-
+Step 2. Launch MATLAB SITL sim with vehicle physics
 ```matlab
-SIM_multicopter_PID_noZaccel.m
+SIM_multicopter_ardupilot.m
 ```
+Step 3. In a new terminal, launch GCS
 
-### PID + INDI Controller
+``` # Launch SITL GCS (QGroundControl Linux app provided)
+cd ../../utilities
+./QGroundControl-x86_64.AppImage
+  ```
 
-1. Run the initialisation script for the target platform:
+Step 4. Launch Ardupilot with param file
 
-```matlab
-init_hexsoon   % or init_<vehicle_name>
-```
+``` # Launch SITL with Hexsoon airframe
+cd ardupilot
+sim_vehicle.py -v Copter -f JSON:127.0.0.1 \
+  --add-param-file=./config/hexsoon.param
+  ```
 
-3. Open and run the MATLAB script
 
-```matlab
-SIM_multicopter_PID_INDI.m
-```
 
-# Description
-
-## MATLAB
+# MATLAB
 
 The SITL_connector function can be used to simplify the connection process. SITL_connector.m uses the TCP/UDP/IP Toolbox 2.0.6 by Peter Rydesäter and is much (10x) faster than the MATLAB functions available with the instrument control toolbox (and free!). However this may require compilation of a mex file, prebuilt mex files are included in most cases they will work without the need to re-compile. 
 
