@@ -42,7 +42,7 @@ init_hexsoon   % or init_<vehicle_name>
 2. Run Visualizer
 
 ```python
-python ../visualizer/quad_viz_pybullet/visudrone_viz.py
+python ../visualizer/quad_viz_pybullet/drone_viz.py
 ```
 
 3. Open and run the MATLAB script
