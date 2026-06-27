@@ -64,7 +64,7 @@ copter.inertia = diag(ones(3,1)*inertia); % rotational inertia matrix (kgm^2)
 copter.cd = [0.5;0.5;0.5];
 copter.cd_ref_area = [1;1;1] * pi * (0.45*0.5)^2;
 
-save('Hexsoon','copter')
+
 
 % Plot motor curves
 % http://www.bavaria-direct.co.za/constants/
@@ -90,8 +90,19 @@ power_out = ideal_voltage .* (amps - electrical.no_load_current(1));
 efficiency = power_out ./ power_in;
 
 torque = Kt * amps;
+   
+%copter.motor_max_torque = max(torque);
 rpm = ideal_voltage * electrical.kv;
 
+% max_rps = max(rpm)/60;
+%  % Calculate the thrust (with fudge factor!)
+% environment.density = 1.225;
+% max_thrust = 2.2 * prop.TConst * environment.density * (max_rps)^2 * prop.diameter^4;
+
+
+
+
+save('Hexsoon','copter')
 % Plot motor characteristics
 figure('name',sprintf('motor characteristics at %0.2f volts',battery.voltage))
 subplot(2,2,1)

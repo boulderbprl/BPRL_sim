@@ -19,6 +19,8 @@ end
 % Setup environmental conditions
 state.environment.density = 1.225; % (kg/m^3)
 state.gravity_mss = 9.80665; % (m/s^2)
+state.copter.max_motor_torque = 0.3353;
+state.copter.max_motor_arm_moment = 2.67;
 
 % Setup the time step size for the Physics model
 max_timestep = 1/50;
@@ -30,7 +32,7 @@ init_function = @init;
 physics_function = @physics_step;
 target_function = @nav_figure8;
 % setup controller 
-control_update = @pid_control;
+control_update = @update_control;
 
 
 % setup connection
@@ -49,6 +51,9 @@ function state = init(state)
     for i = 1:numel(state.copter.motors)
         state.copter.motors(i).rpm     = 0;
         state.copter.motors(i).current = 0;
+        state.copter.motors(i).moment_roll = 0;
+        state.copter.motors(i).moment_pitch = 0;
+        state.copter.motors(i).moment_yaw = 0;
     end
     state.gyro      = [0;0;0];
     state.dcm       = eye(3);
@@ -58,6 +63,7 @@ function state = init(state)
     state.position  = [0;0;0];   % NED (m)
     state.bf_velo   = [0;0;0];   % body frame velocity (m/s)
     state.on_ground = true;
+    state.rot_accel = [0;0;0];
     % Clear persistent controller so stale integrators don't survive
     % between MATLAB runs (clearvars does NOT clear handle object state)
     clear pid_control
@@ -140,6 +146,7 @@ end
 function state = update_dynamics(state,force,moments)
 
 rot_accel = (moments' / state.copter.inertia)';
+state.rot_accel = rot_accel;
 
 state.gyro = state.gyro + rot_accel * state.delta_t;
 
@@ -221,24 +228,26 @@ function target = nav_figure8(t)
 
     if t < 15
         target.position = [0; 0; fig8_alt];
-    else
+    elseif t < 300
         t2 = t - 15;
         target.position = [fig8_A*sin(fig8_w*t2); ...
                            fig8_A*sin(2*fig8_w*t2); ...
                            fig8_alt];
+    else
+        quit;
     end
     target.yaw = 0;
 end
 
 
-function [motor_pwm,target] = pid_control(target,state,dt)
+function [motor_pwm,target] = update_control(target,state,dt)
 
 % Created once on the first call; persist between timesteps so integrators
 % and derivative state accumulate correctly.
 
 persistent controllers;
 if isempty(controllers)
-    controllers = build_controllers();
+    controllers = build_controllers(state.copter);
     fprintf('[pid_control] Controllers initialised\n');
 end
 
@@ -293,7 +302,7 @@ motor_pwm = motor_mixer(state.copter.motors, ...
 %             state.position, state.velocity, rad2deg(state.attitude'));
 end
 
-function c = build_controllers()
+function c = build_controllers(copter)
  
 % ── POSITION LOOP  (P only — Ki=0, Kd=0) ────────────────────────────────
 %   Output units: m/s per m of error.
@@ -322,15 +331,27 @@ c.att_yaw   = controller_PID(4.5,  0,    0,    0);
 %   fCutDeriv=20 Hz matches the default ArduPilot derivative filter.
 %
 %                    Kp     Ki     Kd      Ff   imax  fCutDeriv
-c.rate_roll  = controller_PID(0.135,  0.135,  0.0,  0,   0.444, 20);
+c.rate_roll  = controller_PID(8.0,  0,  1.5,  0,   0.444, 20);
 c.rate_pitch = controller_PID(0.135,  0.135,  0.0,  0,   0.444,  20);
-c.rate_yaw   = controller_PID(0.18,  0.018,  0.0,    0,   0.222);
+c.rate_yaw   = controller_PID(8.0,  0,  1.5,    0,   0.222);
  
 
 % Gyro low-pass filter states (one per axis, updated each step in Layer 4)
 c.p_filt = 0.0;
 c.q_filt = 0.0;
 c.r_filt = 0.0;
+
+% ── ROT ACCEL LOOP  (INDI) ─────────────────────────────────────────────────────
+%   Output units: normalised torque [−1, 1].
+%   fCutDeriv=20 Hz matches the default ArduPilot derivative filter.
+%
+%                    Kp     Ki     Kd      Ff   imax  fCutDeriv
+
+g = inv(copter.inertia);
+c.accel_roll_INDI  = controller_INDI(0.5,@(x) g(1,1));
+c.accel_pitch_INDI = controller_INDI(0.5,@(x) g(2,2));
+ 
+
 
 end 
 
@@ -528,11 +549,40 @@ pi_yaw   = controllers.rate_yaw.update(  r_cmd, r_rate, dt);
 RAT_RP_D  = 0.0036;
 RAT_YAW_D = 0.0;
  
-U2 = pi_roll  - RAT_RP_D  * controllers.p_filt;
-U3 = pi_pitch - RAT_RP_D  * controllers.q_filt;
+pdot_cmd = pi_roll  - RAT_RP_D  * controllers.p_filt;
+qdot_cmd = pi_pitch - RAT_RP_D  * controllers.q_filt;
+
+
+% compute current roll and pitch torques
+
+[current_roll_torque,current_pitch_torque,~] = unmixer_compute_torques(state); 
+
+% compute INDI controller on roll and pitch
+U2 = controllers.accel_roll_INDI.update(pdot_cmd,state.rot_accel(1),state,current_roll_torque);
+U3 = controllers.accel_pitch_INDI.update(qdot_cmd,state.rot_accel(2),state,current_pitch_torque);
+
+
+% Yaw rate PID controller
 U4 = pi_yaw   - RAT_YAW_D * controllers.r_filt;
 
-torque_roll  = clamp(U2 ,  -1, 1)
-torque_pitch = clamp(U3,   -1, 1)
+% normalize U2 and U3 
+torque_roll  = clamp(U2/(2*state.copter.max_motor_arm_moment) ,  -1, 1)
+torque_pitch = clamp(U3/(2*state.copter.max_motor_arm_moment) ,   -1, 1)
 torque_yaw   = clamp(U4 , -1, 1);
+end
+
+function [roll_torque,pitch_torque,yaw_torque] =  unmixer_compute_torques(state)
+
+% estimate rotational drag
+rotational_drag = 0.2 * sign(state.gyro) .* state.gyro.^2; % estimated to give a reasonable max rotation rate
+
+% Update attitude, moments to rotational acceleration to rotational velocity to attitude
+moments = [-sum([state.copter.motors.moment_roll]);sum([state.copter.motors.moment_pitch]);sum([state.copter.motors.moment_yaw])] - rotational_drag;
+
+roll_torque = moments(1);
+pitch_torque = moments(2);
+yaw_torque = moments(3);
+
+
+
 end
