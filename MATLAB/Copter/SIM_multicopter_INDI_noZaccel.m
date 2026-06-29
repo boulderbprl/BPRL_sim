@@ -66,6 +66,10 @@ function state = init(state)
     state.rot_accel = [0;0;0];
     % Clear persistent controller so stale integrators don't survive
     % between MATLAB runs (clearvars does NOT clear handle object state)
+    state.controller.tau_roll = 0; 
+    state.controller.tau_pitch = 0; 
+    state.controller.tau_yaw = 0;
+
     clear pid_control
 end
 
@@ -228,13 +232,11 @@ function target = nav_figure8(t)
 
     if t < 15
         target.position = [0; 0; fig8_alt];
-    elseif t < 300
+    else 
         t2 = t - 15;
         target.position = [fig8_A*sin(fig8_w*t2); ...
                            fig8_A*sin(2*fig8_w*t2); ...
                            fig8_alt];
-    else
-        quit;
     end
     target.yaw = 0;
 end
@@ -287,8 +289,6 @@ target.r = r_cmd;
 
 % update rate controller at 400 Hz
 [torque_roll,torque_pitch,torque_yaw,controllers] = update_rate_controller(state,p_cmd,q_cmd,r_cmd,controllers,dt);
-                   
-
 
 
 % implement the motor mixing 
@@ -332,8 +332,8 @@ c.att_yaw   = controller_PID(4.5,  0,    0,    0);
 %
 %                    Kp     Ki     Kd      Ff   imax  fCutDeriv
 c.rate_roll  = controller_PID(8.0,  0,  1.5,  0,   0.444, 20);
-c.rate_pitch = controller_PID(0.135,  0.135,  0.0,  0,   0.444,  20);
-c.rate_yaw   = controller_PID(8.0,  0,  1.5,    0,   0.222);
+c.rate_pitch = controller_PID(8.0,  0,  1.5,  0,   0.444,  20);
+c.rate_yaw   = controller_PID(0.18,  0.018,  0,    0,   0.222);
  
 
 % Gyro low-pass filter states (one per axis, updated each step in Layer 4)
@@ -348,8 +348,8 @@ c.r_filt = 0.0;
 %                    Kp     Ki     Kd      Ff   imax  fCutDeriv
 
 g = inv(copter.inertia);
-c.accel_roll_INDI  = controller_INDI(0.5,@(x) g(1,1));
-c.accel_pitch_INDI = controller_INDI(0.5,@(x) g(2,2));
+c.accel_roll_INDI  = controller_INDI(0.35,@(x) g(1,1));
+c.accel_pitch_INDI = controller_INDI(0.35,@(x) g(2,2));
  
 
 
@@ -546,11 +546,10 @@ pi_pitch = controllers.rate_pitch.update(q_cmd, q_rate, dt);
 pi_yaw   = controllers.rate_yaw.update(  r_cmd, r_rate, dt);
 
 % Subtract D on filtered measurement
-RAT_RP_D  = 0.0036;
-RAT_YAW_D = 0.0;
- 
-pdot_cmd = pi_roll  - RAT_RP_D  * controllers.p_filt;
-qdot_cmd = pi_pitch - RAT_RP_D  * controllers.q_filt;
+
+pdot_cmd = pi_roll  - controllers.rate_roll.Kd * controllers.p_filt;
+qdot_cmd = pi_pitch - controllers.rate_pitch.Kd  * controllers.q_filt;
+
 
 
 % compute current roll and pitch torques
@@ -563,11 +562,11 @@ U3 = controllers.accel_pitch_INDI.update(qdot_cmd,state.rot_accel(2),state,curre
 
 
 % Yaw rate PID controller
-U4 = pi_yaw   - RAT_YAW_D * controllers.r_filt;
+U4 = pi_yaw    - controllers.rate_yaw.Kd * controllers.r_filt;
 
 % normalize U2 and U3 
-torque_roll  = clamp(U2/(2*state.copter.max_motor_arm_moment) ,  -1, 1)
-torque_pitch = clamp(U3/(2*state.copter.max_motor_arm_moment) ,   -1, 1)
+torque_roll  = clamp(U2/(2*state.copter.max_motor_arm_moment) ,  -1, 1);
+torque_pitch = clamp(U3/(2*state.copter.max_motor_arm_moment) ,   -1, 1);
 torque_yaw   = clamp(U4 , -1, 1);
 end
 
