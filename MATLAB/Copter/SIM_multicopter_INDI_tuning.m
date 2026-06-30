@@ -234,7 +234,7 @@ function target = nav_figure8(t)
 
     if t < 15
         target.position = [0; 0; fig8_alt];
-    else t<200
+    else 
        t2 = t - 15;
         target.position = [fig8_A*sin(fig8_w*t2); ...
                            fig8_A*sin(2*fig8_w*t2); ...
@@ -597,7 +597,7 @@ end
 function history = run_sim_finite(state, target_function, init_function, physics_function, control_update)
     state = init_function(state);
 
-    SIM_DURATION = 40;
+    SIM_DURATION = 140;
     n_steps = floor(SIM_DURATION / state.delta_t);
 
     % Pre-allocate — vehicle states
