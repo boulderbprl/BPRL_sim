@@ -35,6 +35,7 @@ fprintf('SITL initialized\n');
 while true
 
     % read in data from AP
+    
 
     target = target_function(physics_time_s);
    

@@ -57,7 +57,7 @@ function state = init(state)
     state.velocity  = [0;0;0];   % NED (m/s)
     state.position  = [0;0;0];   % NED (m)
     state.bf_velo   = [0;0;0];   % body frame velocity (m/s)
-    state.on_ground = true;
+ 
     % Clear persistent controller so stale integrators don't survive
     % between MATLAB runs (clearvars does NOT clear handle object state)
     clear pid_control
@@ -266,15 +266,6 @@ target.p = p_cmd;
 target.q = q_cmd;
 target.r = r_cmd;
 
-% ── Layer 4: rates → torques ──────────────────────────────────────────
-    % While on the ground, reset rate integrators each step to prevent
-    % attitude windup before the vehicle can respond.
-    if state.on_ground
-        controllers.rate_roll.reset();
-        controllers.rate_pitch.reset();
-        controllers.rate_yaw.reset();
-        controllers.p_filt = 0; controllers.q_filt = 0; controllers.r_filt = 0;
-    end
 
 % update rate controller at 400 Hz
 [torque_roll,torque_pitch,torque_yaw,controllers] = update_rate_controller(state,p_cmd,q_cmd,r_cmd,controllers,dt);
@@ -532,7 +523,7 @@ U2 = pi_roll  - RAT_RP_D  * controllers.p_filt;
 U3 = pi_pitch - RAT_RP_D  * controllers.q_filt;
 U4 = pi_yaw   - RAT_YAW_D * controllers.r_filt;
 
-torque_roll  = clamp(U2 ,  -1, 1)
-torque_pitch = clamp(U3,   -1, 1)
+torque_roll  = clamp(U2 ,  -1, 1);
+torque_pitch = clamp(U3,   -1, 1);
 torque_yaw   = clamp(U4 , -1, 1);
 end

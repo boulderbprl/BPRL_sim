@@ -6,12 +6,21 @@ clc;
 addpath('flight_data');
 
 % Import data 1
-filename = 'Flight1_11_21.bin';
+% Uncomment for 2026-06-28_4SR_Flight
+%filename = './flight_data/2026-06-28_4SR_Flight';
+% startTime = 33; 
+% endTime = 125; 
+
+% Uncomment for 2026-06-28_4SR_Flight
+filename = './flight_data/2026-06-28_4SR_Flight_NoFilt';
+startTime = 40; 
+endTime = 112;
 
 dt = 1/40;  % 30 Hz sampling rate
+ 
 
-globalTime = [0:dt:600]';
-flight_data = import_ardupilot_data(filename, globalTime);
+globalTime = [startTime:1/40:endTime]';
+flight_data = import_ardupilot_data_esc(filename+".BIN", globalTime);
 
 %     .states: [x, y, z, u, v, w, p, q, r, phi, theta, psi]
 %     .inputs: [roll_input, pitch_iSnput, yaw_input, thrust_input]
@@ -21,4 +30,6 @@ flight_data = import_ardupilot_data(filename, globalTime);
 
 %% data analysis 
 
- plot_states(flight_data,[100,300])
+plot_states(flight_data,[startTime,endTime],true)
+
+save(filename+".mat")

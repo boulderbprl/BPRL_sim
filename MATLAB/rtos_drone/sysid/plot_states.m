@@ -1,5 +1,5 @@
 
-function plot_states(flight_data, time_bounds)
+function plot_states(flight_data, time_bounds,plot_esc_data)
     % PLOT_STATES Plots all vehicle states and control inputs
     %
     % Inputs:
@@ -12,6 +12,9 @@ function plot_states(flight_data, time_bounds)
     % Set default time bounds if not provided
     if nargin < 2
         time_bounds = [min(flight_data.time), max(flight_data.time)];
+    end
+    if nargin < 3
+        plot_esc_data = false;
     end
     
     %% Position plot (x, y, z)
@@ -82,8 +85,37 @@ function plot_states(flight_data, time_bounds)
         grid on; ylabel('Yaw (psi) [deg]', 'FontWeight', 'bold');
         xlabel('Time [s]', 'FontWeight', 'bold'); xlim(time_bounds);
     
+    
     %% Control inputs plot
-    figure(5); set(gcf, 'Color', 'w');
+     i=5;
+   if plot_esc_data
+
+    figure(i); set(gcf, 'Color', 'w');
+        subplot(2,2,1);
+        plot(flight_data.time, flight_data.esc_inputs(:,1), 'r');
+        grid on; ylabel('ESC 1 (RPM)', 'FontWeight', 'bold');
+        xlim(time_bounds); title('ESCs RPM');
+        
+        subplot(2,2,2);
+        plot(flight_data.time, flight_data.esc_inputs(:,2), 'g');
+        grid on; ylabel('ESC 2 (RPM)', 'FontWeight', 'bold');
+        xlim(time_bounds);
+        
+        subplot(2,2,3);
+        plot(flight_data.time, flight_data.esc_inputs(:,3), 'b');
+        grid on; ylabel('ESC 3 (RPM)', 'FontWeight', 'bold');
+        xlabel('Time [s]', 'FontWeight', 'bold'); xlim(time_bounds);
+        
+        subplot(2,2,4);
+        plot(flight_data.time, flight_data.esc_inputs(:,4), 'k');
+        grid on; ylabel('ESC 4 (RPM)', 'FontWeight', 'bold');
+        xlabel('Time [s]', 'FontWeight', 'bold'); xlim(time_bounds);
+    
+    fprintf('Plotted ESC inputs successfully!\n');
+           i=i+1;
+   end
+
+    figure(i); set(gcf, 'Color', 'w');
         subplot(2,2,1);
         plot(flight_data.time, flight_data.inputs(:,1), 'r');
         grid on; ylabel('Roll Input', 'FontWeight', 'bold');
@@ -105,4 +137,6 @@ function plot_states(flight_data, time_bounds)
         xlabel('Time [s]', 'FontWeight', 'bold'); xlim(time_bounds);
     
     fprintf('State and input plots completed successfully!\n');
+
+  
 end

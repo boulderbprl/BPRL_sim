@@ -46,14 +46,6 @@ motor(4).direction = 1;
 % Add all to vehicle
 copter.motors = motor;
 
-copter.motor_model.coeff_poles = [140.7446 1.0840e+04 4.2208e+05 6.5621e+06];
-copter.motor_model.coeff_zeros = [-0.1211 15.4302 -1.0774e+03 3.0115e+04];
-copter.motors.model.np = length(copter.motor_model.coeff_poles); % number of poles of motor model
-copter.motor_model.nz = length(copter.motor_model.coeff_zeros); % number of zeros of motor model
-copter.motor_model.torque_thrust_coeffs = [];
-
-copter.motor_model.pwm_mean = 
-copter.motor_model.pwm_std = 
 
 copter.mass = 0.8135; % (kg) 
 %inertia = (2/5) * copter.mass * (0.48*0.2)^2; % (sphere)  ###~ dense compact to 1/5 length radius

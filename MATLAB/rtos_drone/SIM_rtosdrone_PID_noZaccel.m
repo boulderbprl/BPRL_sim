@@ -1,0 +1,525 @@
+clc
+clearvars
+close all
+addpath(genpath('../../MATLAB'))
+
+% Physics of a multi copter
+
+% load in the parameters for a frame
+try
+    state = load('rtos_drone','copter');
+catch
+     run('rtos_drone.m')
+    fprintf('Could not find rtos_drone.mat file, running copter.m\n')
+    return
+end
+
+
+% Setup environmental conditions
+state.environment.density = 1.225; % (kg/m^3)
+state.gravity_mss = 9.80665; % (m/s^2)
+
+% Setup the time step size for the Physics model
+max_timestep = 1/50;
+state.delta_t = min(1/400,max_timestep); 
+
+
+% define init and time setup functions
+init_function = @init;
+physics_function = @physics_step;
+target_function = @nav_figure8;
+% setup controller 
+control_update = @pid_control;
+
+
+% setup connection
+SITL_connector_MATLAB(state,target_function,init_function,physics_function,control_update,max_timestep);
+
+% Simulator model must take and return a structure with the felids: 
+% gyro(roll, pitch, yaw) (radians/sec) body frame
+% attitude(roll, pitch yaw) (radians)
+% accel(north, east, down) (m/s^2) body frame
+% velocity(north, east,down) (m/s) earth frame
+% position(north, east, down) (m) earth frame 
+% the structure can have any other fields required for the physics model
+
+% init values
+function state = init(state)
+
+for i = 1:numel(state.copter.motors)
+    state.copter.motors(i).thrust = 0; % 
+    state.copter.motors(i).torque = 0;
+    state.copter.motors(i).pwm = 0; % pwm inputs from time t-4 to t-1 inclusive
+    state.copter.motors(i).rpm = 0; % pwm inputs from time t-4 to t-1 inclusive
+end
+state.gyro = [0;0;0]; % (rad/sec)
+state.dcm = diag([1,1,1]); % direction cosine matrix
+state.attitude = [0;0;0]; % (radians) (roll, pitch, yaw)
+state.accel = [0;0;0]; % (m/s^2) body frame
+state.rot_accel = [0;0;0]; % (m/s^2) body frame
+state.velocity = [0;0;0]; % (m/s) earth frame
+state.position = [0;0;0]; % (m) earth frame
+state.bf_velo = [0;0;0]; % (m/s) body frame
+end
+
+% compute thrust from PWM
+function [thrust,torque] = fit_rpm_to_thrust_torque(rpm)
+% poly4 fit from sysid mean_fit       
+%mean_fit = 1546;
+%std_fit = 255.6;
+%pwm_in = (pwm_in - state.copter.motor_model.pwm_mean)/state.copter.motor_model.pwm_std;
+
+rpm_norm = (rpm-2545)/897.3;
+
+x_rpm = [rpm_norm^2;rpm_norm;1];
+thrust = [0.4038,1.9926,2.5993]*x_rpm; 
+
+torque = 0.0311*((thrust - 2.893)/1.984) + 0.0463;
+
+end
+
+% Take a physics time step
+function state = physics_step(pwm_in,state)
+
+% Calculate the torque and thrust, assume RPM is last step value
+for i = 1:numel(state.copter.motors)
+    motor = state.copter.motors(i);
+    
+    % Calculate the throttle
+    pwm = pwm_in(motor.channel); 
+    pwm_norm = (pwm- 1550) / 212.5; %pwm_in = (pwm_in - mean_fit)/std_fit;
+    
+    rpm = 894.5337*pwm_norm + 2525.5;
+
+    % Calculate the thrust and torque
+    [thrust_pwm,torque_pwm] = fit_rpm_to_thrust_torque(rpm);
+    
+   
+    thrust = thrust_pwm;
+    torque = torque_pwm;
+
+    % calculate resulting moments
+    moment_roll = thrust * motor.location(1);
+    moment_pitch = thrust * motor.location(2);
+    moment_yaw = -torque * motor.direction;
+    
+    % sprintf("Motor i:%d Thrust: %0.4f",i,thrust)
+    
+    % Update main structure
+    state.copter.motors(i).torque = torque;
+    state.copter.motors(i).thrust = thrust;
+    state.copter.motors(i).rpm = rpm;
+    state.copter.motors(i).pwm = pwm;
+    state.copter.motors(i).moment_roll = moment_roll;
+    state.copter.motors(i).moment_pitch = moment_pitch;
+    state.copter.motors(i).moment_yaw = moment_yaw;
+end
+
+
+drag = sign(state.bf_velo) .* state.copter.cd .* state.copter.cd_ref_area .* 0.5 .* state.environment.density .* state.bf_velo.^2;
+
+% Calculate the forces about the CG (N,E,D) (body frame)
+force = [0;0;-sum([state.copter.motors.thrust])] - drag;
+
+% estimate rotational drag
+rotational_drag = 0.2 * sign(state.gyro) .* state.gyro.^2; % estimated to give a reasonable max rotation rate
+
+% Update attitude, moments to rotational acceleration to rotational velocity to attitude
+moments = [-sum([state.copter.motors.moment_roll]);sum([state.copter.motors.moment_pitch]);sum([state.copter.motors.moment_yaw])] - rotational_drag;
+
+state = update_dynamics(state,force,moments);
+
+end
+
+% integrate the acceleration resulting from the forces and moments to get the
+% new state
+function state = update_dynamics(state,force,moments)
+
+rot_accel = (moments' / state.copter.inertia)';
+
+state.gyro = state.gyro + rot_accel * state.delta_t;
+
+% Constrain to 2000 deg per second, this is what typical sensors max out at
+state.gyro = max(state.gyro,deg2rad(-2000));
+state.gyro = min(state.gyro,deg2rad(2000));
+
+% update the dcm and attitude
+[state.dcm, state.attitude] = rotate_dcm(state.dcm,state.gyro * state.delta_t);
+
+% body frame accelerations
+state.accel = force / state.copter.mass;
+
+% earth frame accelerations (NED)
+accel_ef = state.dcm * state.accel;
+accel_ef(3) = accel_ef(3) + state.gravity_mss;
+
+
+% if we're on the ground, then our vertical acceleration is limited
+% to zero. This effectively adds the force of the ground on the aircraft
+if state.position(3) >= 0 && accel_ef(3) > 0
+    accel_ef(3) = 0;
+end
+
+% work out acceleration as seen by the accelerometers. It sees the kinematic
+% acceleration (ie. real movement), plus gravity
+state.accel = state.dcm' * (accel_ef + [0; 0; -state.gravity_mss]);
+
+state.velocity = state.velocity + accel_ef * state.delta_t;
+state.position = state.position + state.velocity * state.delta_t;
+
+% make sure we can't go underground (NED so underground is positive)
+if state.position(3) >= 0
+    state.position(3) = 0;
+    state.velocity = [0;0;0];
+    state.gyro = [0;0;0];
+end
+
+% calculate the body frame velocity for drag calculation
+state.bf_velo = state.dcm' * state.velocity;
+%sprintf("Gyro: [%0.4f,%0.4f,%0.4f]",state.gyro(1),state.gyro(2),state.gyro(3))
+end
+
+function [dcm, euler] = rotate_dcm(dcm, ang)
+
+% rotate
+delta = [dcm(1,2) * ang(3) - dcm(1,3) * ang(2),         dcm(1,3) * ang(1) - dcm(1,1) * ang(3),      dcm(1,1) * ang(2) - dcm(1,2) * ang(1);
+         dcm(2,2) * ang(3) - dcm(2,3) * ang(2),         dcm(2,3) * ang(1) - dcm(2,1) * ang(3),      dcm(2,1) * ang(2) - dcm(2,2) * ang(1);
+         dcm(3,2) * ang(3) - dcm(3,3) * ang(2),         dcm(3,3) * ang(1) - dcm(3,1) * ang(3),      dcm(3,1) * ang(2) - dcm(3,2) * ang(1)];
+
+dcm = dcm + delta;
+
+% normalise
+a = dcm(1,:);
+b = dcm(2,:);
+error = a * b';
+t0 = a - (b *(0.5 * error));
+t1 = b - (a *(0.5 * error));
+t2 = cross(t0,t1);
+dcm(1,:) = t0 * (1/norm(t0));
+dcm(2,:) = t1 * (1/norm(t1));
+dcm(3,:) = t2 * (1/norm(t2));
+
+% calculate euler angles
+euler = [atan2(dcm(3,2),dcm(3,3)); -asin(dcm(3,1)); atan2(dcm(2,1),dcm(1,1))]; 
+
+end
+
+
+% let this be a figure 8 function 
+
+function target = nav_figure8(t)
+
+ % Hover at (0, 0, -10 m) for first 15 s, then fly a figure-8
+    fig8_alt = -10;          % NED: negative = up
+    fig8_A   = 5;
+    fig8_T   = 30;
+    fig8_w   = 2*pi / fig8_T;
+
+    if t < 15
+        target.position = [0; 0; fig8_alt];
+    else
+        t2 = t - 15;
+        target.position = [fig8_A*sin(fig8_w*t2); ...
+                           fig8_A*sin(2*fig8_w*t2); ...
+                           fig8_alt];
+    end
+    target.yaw = 0;
+end
+
+
+function [motor_pwm,target] = pid_control(target,state,dt)
+
+% Created once on the first call; persist between timesteps so integrators
+% and derivative state accumulate correctly.
+
+persistent controllers;
+if isempty(controllers)
+    controllers = build_controllers();
+    fprintf('[pid_control] Controllers initialised\n');
+end
+
+ 
+
+ 
+
+                               
+% update position control at 50 Hz 
+
+[vx_cmd,vy_cmd,vz_cmd,theta_des,phi_des,thrust_sp,controllers] = update_pos_vel_controller(state,target,controllers,dt);
+
+target.theta = theta_des; 
+target.phi = phi_des;
+
+target.vx = vx_cmd; 
+target.vy = vy_cmd;
+target.vz = vz_cmd; 
+
+
+% update attitude controller at 100 Hz
+[p_cmd,q_cmd,r_cmd,controllers] = update_att_controller(state,phi_des,theta_des,target.yaw,controllers,dt);
+
+target.p = p_cmd; 
+target.q = q_cmd;
+target.r = r_cmd;
+
+
+% update rate controller at 400 Hz
+[torque_roll,torque_pitch,torque_yaw,controllers] = update_rate_controller(state,p_cmd,q_cmd,r_cmd,controllers,dt);
+                   
+
+
+
+% implement the motor mixing 
+motor_pwm = motor_mixer(state.copter.motors, ...
+                        thrust_sp, torque_roll, torque_pitch, torque_yaw);
+
+% fprintf('gnd=%d thr=%5.3f tR=%6.3f tP=%6.3f tY=%6.3f | PWM:', ...
+%             state.on_ground, thrust_sp, torque_roll, torque_pitch, torque_yaw);
+%     fprintf(' %d', round(motor_pwm));
+%     fprintf('\n  pos=[%6.2f %6.2f %6.2f] vel=[%5.2f %5.2f %5.2f] att=[%5.1f %5.1f %5.1f]deg\n', ...
+%             state.position, state.velocity, rad2deg(state.attitude'));
+end
+
+function c = build_controllers()
+ 
+% ── POSITION LOOP  (P only — Ki=0, Kd=0) ────────────────────────────────
+%   Output units: m/s per m of error.
+c.pos_N = controller_PID(1.0,  0,    0,    0,  0,   0);   % North
+c.pos_E = controller_PID(1.0,  0,    0,    0,  0,   0);   % East
+c.pos_D = controller_PID(1.0,  0,    0,    0,  0,   0);   % Down (altitude)
+ 
+% ── VELOCITY LOOP  (PID) ─────────────────────────────────────────────────
+%   Output units: "acceleration" that maps to tilt angle (rad) for XY,
+%                 and thrust delta (normalised) for Z.
+c.vel_N = controller_PID(2.0, 1.0, 0.5, 0);  % North
+c.vel_E = controller_PID(2.0, 1.0, 0.5, 0);  % East
+c.vel_D = controller_PID(5.0, 2.0, 0.0, 0);  % Down (altitude)
+ 
+% Altitude acceleration loop 
+
+c.acc_D = controller_PID(0.75, 1.5, 0.0, 0);  % Down (altitude);
+% ── ATTITUDE LOOP  (P only) ──────────────────────────────────────────────
+%   Output units: rad/s per rad of attitude error.
+c.att_roll  = controller_PID(4.5,  0,    0,    0  );
+c.att_pitch = controller_PID(4.5,  0,    0,    0);
+c.att_yaw   = controller_PID(4.5,  0,    0,    0);
+ 
+% ── RATE LOOP  (PID) ─────────────────────────────────────────────────────
+%   Output units: normalised torque [−1, 1].
+%   fCutDeriv=20 Hz matches the default ArduPilot derivative filter.
+%
+%                    Kp     Ki     Kd      Ff   imax  fCutDeriv
+c.rate_roll  = controller_PID(0.135,  0.135,  0.0,  0,   0.444, 20);
+c.rate_pitch = controller_PID(0.135,  0.135,  0.0,  0,   0.444,  20);
+c.rate_yaw   = controller_PID(0.18,  0.018,  0.0,    0,   0.222);
+ 
+
+% Gyro low-pass filter states (one per axis, updated each step in Layer 4)
+c.p_filt = 0.0;
+c.q_filt = 0.0;
+c.r_filt = 0.0;
+
+end 
+
+function motor_pwm = motor_mixer(motors, thrust_sp, ...
+                                  t_roll, t_pitch, t_yaw)
+    PWM_MIN  = 1100;
+    PWM_MAX  = 1900;
+    PWM_IDLE = 1100;
+
+    n = numel(motors);
+    arm_max = max(arrayfun(@(m) norm(m.location(1:2)), motors));
+    if arm_max < 1e-9; arm_max = 1; end
+
+    throttles = zeros(n,1);
+    for i = 1:n
+        m = motors(i);
+        roll_mix  = -m.location(1) / arm_max;
+        pitch_mix =  m.location(2) / arm_max;
+        yaw_mix   =  -m.direction;
+
+        throttles(i) = thrust_sp ...
+                     + t_roll  * roll_mix  ...
+                     + t_pitch * pitch_mix ...
+                     + t_yaw   * yaw_mix;
+    end
+
+    % Desaturate — preserve attitude authority over thrust
+    thr_max = max(throttles);
+    if thr_max > 1
+        throttles = throttles - (thr_max - 1);
+    end
+    thr_min = min(throttles);
+    if thr_min < 0
+        throttles = throttles - thr_min;
+        if max(throttles) > 1
+            throttles = throttles / max(throttles);
+        end
+    end
+    throttles = max(0, min(1, throttles));
+
+    motor_pwm = zeros(n,1);
+    for i = 1:n
+        if throttles(i) < 0.01
+            motor_pwm(motors(i).channel) = PWM_IDLE;
+        else
+            motor_pwm(motors(i).channel) = PWM_MIN + throttles(i)*(PWM_MAX-PWM_MIN);
+        end
+    end
+end
+
+
+% =========================================================================
+% HELPERS
+% =========================================================================
+function y = clamp(x, lo, hi)
+    y = max(lo, min(hi, x));
+end
+ 
+
+
+function [vx_cmd,vy_cmd,vz_cmd,theta_des,phi_des,thrust_sp,controllers] = update_pos_vel_controller(state,target,controllers,dt)
+    
+ g = state.gravity_mss; 
+HOVER_THRUST = 0.35;
+    % Unpack state 
+px = state.position(1);  py = state.position(2);  pz = state.position(3);
+vx = state.velocity(1);  vy = state.velocity(2);  vz = state.velocity(3);
+psi   = state.attitude(3);   % yaw
+
+%az = state.accel_ef(3)-g;
+
+
+% Physical limits
+MAX_LEAN   = deg2rad(30);   % maximum roll/pitch command
+MAX_VEL_XY     = 5.0;           % m/s  horizontal speed cap from position loop
+MAX_VEL_Z     = 3.0;           % m/s  (magnitude, up is negative NED)
+
+    %% Position Controller NED 
+    
+    
+    vx_cmd = controllers.pos_N.update(target.position(1), px, dt);
+    vy_cmd = controllers.pos_E.update(target.position(2), py, dt);
+    vz_cmd = controllers.pos_D.update(target.position(3), pz, dt);
+     
+    
+    % NED: up is negative, down is positive
+    % Speed limits
+    vx_cmd = clamp(vx_cmd, -MAX_VEL_XY, MAX_VEL_XY);
+    vy_cmd = clamp(vy_cmd, -MAX_VEL_XY, MAX_VEL_XY);
+    vz_cmd = clamp(vz_cmd, -MAX_VEL_Z, MAX_VEL_Z);
+    
+    
+    %% Velocity Controller 
+    
+    %   velocity error → desired acceleration (world frame)
+    %                 → lean angles + thrust setpoint
+    
+    
+    % Horizontal PI  (class handles I + anti-windup internally)
+    ax_des = controllers.vel_N.update(vx_cmd, vx, dt);
+    ay_des = controllers.vel_E.update(vy_cmd, vy, dt);
+    % az_cmd = controllers.vel_D.update(vz_cmd, vz, dt);
+    
+    % Thrust: oppose gravity + commanded vertical accel
+    % NED: up is negative Z, so hover requires negative force on Z axis.
+    % Clamp so we always have meaningful thrust (≥ 10% of hover).
+   
+    thrust_corr = controllers.vel_D.update(vz_cmd, vz, dt);
+    thrust_sp   = clamp(HOVER_THRUST - thrust_corr, 0.05, 1.0);
+    %U1 = controllers.acc_D.update(az_cmd/g,az/g,dt);
+    
+    
+
+
+    % Rotate world-frame accel demand into yaw-aligned body frame
+    % (removes heading from the tilt calculation so roll/pitch are decoupled)
+
+    cy = cos(psi);  sy = sin(psi);
+    ax_body =  cy*ax_des + sy*ay_des;
+    ay_body = -sy*ax_des + cy*ay_des;
+    
+    
+    % Convert to lean angles using actual thrust-per-unit-mass
+          
+    theta_des =  atan2(-ax_body, g);  % pitch: +ax_body → nose down → +theta
+    cos_theta_des = cos(theta_des);
+    phi_des   = atan2(ay_body*cos_theta_des, g);  % roll:  +ay_body → left down → -phi
+     
+    theta_des = clamp(theta_des, -MAX_LEAN, MAX_LEAN);
+    phi_des   = clamp(phi_des,   -MAX_LEAN, MAX_LEAN);
+    
+    
+    % Normalised thrust for mixer (map U1 from Newtons to 0–1)
+    % hover: U1 ≈ -m*g → normalised HOVER_THRUST
+    %thrust_sp = clamp(-(HOVER_THRUST + U1), 0.0, 1.0);
+end
+
+function[p_cmd,q_cmd,r_cmd,controllers] =  update_att_controller(state,phi_des,theta_des,yaw_des,controllers,dt)
+
+phi   = state.attitude(1);   % roll
+theta = state.attitude(2);   % pitch
+psi   = state.attitude(3);   % yaw
+
+MAX_RATE_RP    = deg2rad(220);  % rad/s   roll/pitch rate limit
+MAX_RATE_YAW   = deg2rad(90);   % rad/s   yaw rate limit
+
+% Attitude Controller
+%   error: att_sp − current_attitude  (Euler, rad)
+%   output: body angular rate setpoints (p, q, r  rad/s)
+
+p_cmd = controllers.att_roll.update( phi_des,   phi,   dt);
+q_cmd = controllers.att_pitch.update(theta_des, theta, dt);
+
+% Yaw error wrap 
+
+yaw_err = wrapToPi(yaw_des - psi);          
+r_cmd   = controllers.att_yaw.Kp * yaw_err;  % P-only
+r_cmd   = clamp(r_cmd, -MAX_RATE_YAW, MAX_RATE_YAW);
+
+p_cmd = clamp(p_cmd, -MAX_RATE_RP,  MAX_RATE_RP);
+q_cmd = clamp(q_cmd, -MAX_RATE_RP,  MAX_RATE_RP);
+r_cmd = clamp(r_cmd, -MAX_RATE_YAW, MAX_RATE_YAW);
+end
+
+function [torque_roll,torque_pitch,torque_yaw,controllers] = update_rate_controller(state,p_cmd,q_cmd,r_cmd,controllers,dt)
+
+%   ArduPilot applies the D term to a low-pass filtered gyro signal,
+%   NOT to the error derivative.  This avoids derivative kick on setpoint
+%   steps and rejects high-frequency noise more cleanly than filtering the
+%   error.  The class handles P + I; we add D(measurement) here.
+%
+%   U = Kp*err + Ki*integral(err) - Kd * filtered_gyro
+%       ↑ from class .update()        ↑ computed here
+
+p_rate = state.gyro(1);
+q_rate = state.gyro(2);
+r_rate = state.gyro(3);
+% D-term low-pass on gyro measurement (ArduPilot: 20 Hz cutoff)
+% Discrete first-order: y += alpha*(x - y)
+wc    = 2*pi*20;
+alpha = wc*dt / (1 + wc*dt);
+
+% Update gyro low-pass filters
+controllers.p_filt = controllers.p_filt + alpha * (p_rate - controllers.p_filt);
+controllers.q_filt =controllers.q_filt + alpha * (q_rate - controllers.q_filt);
+controllers.r_filt = controllers.r_filt + alpha * (r_rate - controllers.r_filt);
+
+
+% PI from class (target = rate_cmd, measurement = gyro)
+pi_roll  = controllers.rate_roll.update( p_cmd, p_rate, dt);
+pi_pitch = controllers.rate_pitch.update(q_cmd, q_rate, dt);
+pi_yaw   = controllers.rate_yaw.update(  r_cmd, r_rate, dt);
+
+% Subtract D on filtered measurement
+RAT_RP_D  = 0.0036;
+RAT_YAW_D = 0.0;
+ 
+U2 = pi_roll  - RAT_RP_D  * controllers.p_filt;
+U3 = pi_pitch - RAT_RP_D  * controllers.q_filt;
+U4 = pi_yaw   - RAT_YAW_D * controllers.r_filt;
+
+torque_roll  = clamp(U2 ,  -1, 1);
+torque_pitch = clamp(U3,   -1, 1);
+torque_yaw   = clamp(U4 , -1, 1);
+end
