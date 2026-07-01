@@ -25,10 +25,10 @@ close all
 arm_length = 370; %370 mm
 
 % locations (xyz) in m
-motor(1).location = [[sind(50),cosd(50)]*arm_length*0.5,35] * 0.001; % front right
-motor(2).location = [[sind(130),cosd(130)]*arm_length*0.5,35] * 0.001; % rear right
-motor(3).location = [[sind(230),cosd(230)]*arm_length*0.5,35] * 0.001; % rear left
-motor(4).location = [[sind(310),cosd(310)]*arm_length*0.5,35] * 0.001; % front left
+motor(1).location = [[sind(50),cosd(50)]*arm_length*0.5,35] * 0.001; % front right ESC 10 
+motor(2).location = [[sind(130),cosd(130)]*arm_length*0.5,35] * 0.001; % rear right ESC 9
+motor(3).location = [[sind(230),cosd(230)]*arm_length*0.5,35] * 0.001; % rear left ESC 11
+motor(4).location = [[sind(310),cosd(310)]*arm_length*0.5,35] * 0.001; % front left ESC 12
 
 % PWM output to use
 motor(1).channel = 1;

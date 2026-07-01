@@ -58,7 +58,7 @@
     
     fprintf('Extracting ESC data...\n');
     try
-        esc_data_raw = readMessages(arduObj, 'MessageName', {'ESC','ESC','ESC','ESC'},'InstanceID',{9,10,11,12});
+        esc_data_raw = readMessages(arduObj, 'MessageName', {'ESC','ESC','ESC','ESC'},'InstanceID',{10,9,11,12});
         
         esc_data9 = esc_data_raw.MsgData{1,1};
         esc_data10 = esc_data_raw.MsgData{2,1};
@@ -164,7 +164,8 @@
             interp1(EKF_time, vel_global_E, globalTime, 'linear'), ...
             interp1(EKF_time, vel_global_D, globalTime, 'linear')
         ];
-
+        
+        flight_data.velocity_global = velocity_global;
 
          %% Transform global velocities to body frame using attitude data
         fprintf('Performing coordinate transformation for velocities...\n');
@@ -172,6 +173,8 @@
             if ~any(isnan(attitude(:))) && ~any(isnan(velocity_global(:)))
                 velocity_body = zeros(size(velocity_global));
                 
+                 flight_data.dcm_init = RotationMatrix321([attitude(1,1), attitude(1,2), attitude(1,3)])';
+
                 for i = 1:length(globalTime)
                     % Create rotation matrix from global to body frame (transpose of body-to-global)
                     phi = attitude(i,1);    % Roll
@@ -187,11 +190,13 @@
             else
                 warning('Cannot transform velocities: missing attitude or velocity data');
                 velocity_body = velocity_global;  % Use global velocities as fallback
+                flight_data.dcm_init=eye(3);
             end
 
         catch ME
             warning('Velocity transformation failed: %s', string(ME.message));
             velocity_body = velocity_global;  % Use global velocities as fallback
+             flight_data.dcm_init=eye(3);
         end
 
     catch ME
@@ -199,6 +204,7 @@
         position = nan(length(globalTime), 3);
         velocity_body = nan(length(globalTime), 3);
         attitude =  nan(length(globalTime), 3);
+         flight_data.dcm_init=eye(3);
     end
     
     %% Extract IMU Data for angular rates and accelerations

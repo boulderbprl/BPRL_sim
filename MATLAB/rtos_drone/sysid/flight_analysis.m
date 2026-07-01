@@ -7,14 +7,14 @@ addpath('flight_data');
 
 % Import data 1
 % Uncomment for 2026-06-28_4SR_Flight
-%filename = './flight_data/2026-06-28_4SR_Flight';
-% startTime = 33; 
-% endTime = 125; 
+filename = './flight_data/2026-06-28_4SR_Flight';
+startTime = 33; 
+endTime = 125; 
 
 % Uncomment for 2026-06-28_4SR_Flight
-filename = './flight_data/2026-06-28_4SR_Flight_NoFilt';
-startTime = 40; 
-endTime = 112;
+% filename = './flight_data/2026-06-28_4SR_Flight_NoFilt';
+% startTime = 40; 
+% endTime = 112;
 
 dt = 1/40;  % 30 Hz sampling rate
  
